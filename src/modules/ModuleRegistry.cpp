@@ -19,6 +19,7 @@
 #include "misc/notouchborder.hpp"
 #include "misc/forceglobalrp.hpp"
 #include "misc/cpslimiter.hpp"
+#include "misc/spinning.hpp"
 #include "hud/speeddisplay.hpp"
 #include "hud/debugmenu.hpp"
 #include "visual/viewmodel.hpp"
@@ -97,6 +98,7 @@ void registerAllModules() {
     registry.emplace<ChatTimestampsModule>();
     registry.emplace<NoTouchBorderModule>();
     registry.emplace<CpsLimiterModule>();
+    registry.emplace<SpinningModule>();
     registry.emplace<SpeedDisplayModule>();
     registry.emplace<DebugMenuModule>();
     registry.emplace<ViewModelModule>();
