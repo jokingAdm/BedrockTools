@@ -7,52 +7,74 @@ static bool (*original_isInEDUMultiplayerSession)(void* _this) = nullptr;
 static void (*original_nativeSuspendGameplayUpdates)(void* env, void* activity, bool suspend) = nullptr;
 static NoDisconnectModule* g_noDisconnectMod = nullptr;
 
-static void nativeSuspendGameplayUpdates_hook(void* env, void* activity, bool suspend) {
-    // Bedrock calls this JNI entry point when Android backgrounds the activity.
-    // Keep gameplay/network update scheduling enabled while No Disconnect is active.
-    if (g_noDisconnectMod && g_noDisconnectMod->enabled) {
-        suspend = false;
-    }
-    if (original_nativeSuspendGameplayUpdates) {
-        original_nativeSuspendGameplayUpdates(env, activity, suspend);
-    }
-}
-
 static bool isInEDUMultiplayerSession_hook(void* _this) {
     if (g_noDisconnectMod && g_noDisconnectMod->enabled) {
         return true;
     }
-    
+
     if (original_isInEDUMultiplayerSession) {
         return original_isInEDUMultiplayerSession(_this);
     }
     return false;
 }
 
+// Android/Bedrock calls this JNI entry point when the Activity is being
+// backgrounded or resumed. When No Disconnect is enabled, keep the Bedrock
+// gameplay-update suspension flag cleared. This is deliberately scoped to
+// Minecraft's own suspend flag; it does not create a background thread and
+// does not interfere with process termination (e.g. swiping the app away).
+static void nativeSuspendGameplayUpdates_hook(void* env, void* activity, bool suspend) {
+    (void)suspend;
+
+    if (g_noDisconnectMod && g_noDisconnectMod->enabled) {
+        if (original_nativeSuspendGameplayUpdates) {
+            original_nativeSuspendGameplayUpdates(env, activity, false);
+        }
+        return;
+    }
+
+    if (original_nativeSuspendGameplayUpdates) {
+        original_nativeSuspendGameplayUpdates(env, activity, suspend);
+    }
+}
+
 NoDisconnectModule::NoDisconnectModule()
-    : Module("No Disconnect", "Prevents you from being disconnected when you minimize the app.") {
+    : Module("No Disconnect", "Keeps Bedrock gameplay updates active while the app is backgrounded.") {
     g_noDisconnectMod = this;
 }
 
 void NoDisconnectModule::onInit() {
-    if (m_patchTarget) return;
-    
-    uintptr_t addr = bedrocktools::memory::resolve(bedrocktools::memory::SignatureId::EduMultiplayer);
-    if (addr != 0) {
-        m_patchTarget = (void*)addr;
-        bedrocktools::hooks::install(m_patchTarget, (void*)isInEDUMultiplayerSession_hook, (void**)&original_isInEDUMultiplayerSession);
-        m_patched = true;
+    if (m_patched) return;
+
+    const auto eduAddr =
+        bedrocktools::memory::resolve(bedrocktools::memory::SignatureId::EduMultiplayer);
+    if (eduAddr != 0) {
+        auto handle = bedrocktools::hooks::install(
+            reinterpret_cast<void*>(eduAddr),
+            reinterpret_cast<void*>(isInEDUMultiplayerSession_hook),
+            reinterpret_cast<void**>(&original_isInEDUMultiplayerSession)
+        );
+        if (handle) {
+            m_eduHook = handle;
+        }
     }
 
-    // Also intercept the Android lifecycle callback that explicitly suspends
-    // Minecraft gameplay updates while the Activity is backgrounded.
-    uintptr_t suspendAddr = bedrocktools::memory::resolve(bedrocktools::memory::SignatureId::NativeSuspendGameplayUpdates);
+    const auto suspendAddr =
+        bedrocktools::memory::resolve(
+            bedrocktools::memory::SignatureId::NativeSuspendGameplayUpdates
+        );
     if (suspendAddr != 0) {
-        bedrocktools::hooks::install(
-            (void*)suspendAddr,
-            (void*)nativeSuspendGameplayUpdates_hook,
-            (void**)&original_nativeSuspendGameplayUpdates);
+        auto handle = bedrocktools::hooks::install(
+            reinterpret_cast<void*>(suspendAddr),
+            reinterpret_cast<void*>(nativeSuspendGameplayUpdates_hook),
+            reinterpret_cast<void**>(&original_nativeSuspendGameplayUpdates)
+        );
+        if (handle) {
+            m_suspendHook = handle;
+        }
     }
+
+    m_patched = (m_eduHook != nullptr || m_suspendHook != nullptr);
 }
 
 void NoDisconnectModule::onEnable() {

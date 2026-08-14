@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Module.hpp"
+#include "core/memory/Hooks.hpp"
 
 class NoDisconnectModule : public Module {
 public:
@@ -11,5 +12,6 @@ public:
 
 private:
     bool m_patched = false;
-    void* m_patchTarget = nullptr;
+    bedrocktools::hooks::Handle m_eduHook = nullptr;
+    bedrocktools::hooks::Handle m_suspendHook = nullptr;
 };
