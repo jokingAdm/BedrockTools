@@ -17,6 +17,7 @@ enum class SignatureId : std::uint16_t {
     Time,
     SetTime,
     EduMultiplayer,
+    NativeSuspendGameplayUpdates,
     HudCursor,
     LevelInit,
     LevelDtor,
